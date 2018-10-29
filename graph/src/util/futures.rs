@@ -2,9 +2,9 @@ use slog::{debug, trace, Logger};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::prelude::*;
-use tokio::timer::DeadlineError;
+use tokio::timer::timeout::Error as TimeoutError;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Error as RetryError;
 use tokio_retry::Retry;
@@ -27,7 +27,7 @@ use tokio_retry::Retry;
 /// ```
 /// # extern crate graph;
 /// # use graph::prelude::*;
-/// # use graph::tokio::timer::DeadlineError;
+/// # use graph::tokio::timer::timeout::Error as TimeoutError;
 /// #
 /// # type Memes = (); // the memes are a lie :(
 /// #
@@ -35,7 +35,7 @@ use tokio_retry::Retry;
 /// #     future::ok(())
 /// # }
 ///
-/// fn async_function(logger: Logger) -> impl Future<Item=Memes, Error=DeadlineError<()>> {
+/// fn async_function(logger: Logger) -> impl Future<Item=Memes, Error=TimeoutError<()>> {
 ///     // Retry on error
 ///     retry("download memes", &logger)
 ///         .no_limit() // Retry forever
@@ -146,7 +146,7 @@ where
     E: Debug + Send,
 {
     /// Rerun the provided function as many times as needed.
-    pub fn run<F, R>(self, try_it: F) -> impl Future<Item = I, Error = DeadlineError<E>>
+    pub fn run<F, R>(self, try_it: F) -> impl Future<Item = I, Error = TimeoutError<E>>
     where
         F: Fn() -> R + Send,
         R: Future<Item = I, Error = E> + Send,
@@ -166,7 +166,7 @@ where
             condition,
             log_after,
             limit_opt,
-            move || try_it().deadline(Instant::now() + timeout),
+            move || try_it().timeout(timeout),
         )
     }
 }
@@ -201,7 +201,7 @@ impl<I, E> RetryConfigNoTimeout<I, E> {
             move || {
                 try_it().map_err(|e| {
                     // No timeout, so all errors are inner errors
-                    DeadlineError::inner(e)
+                    TimeoutError::inner(e)
                 })
             },
         ).map_err(|e| {
@@ -217,13 +217,13 @@ fn run_retry<I, E, F, R>(
     condition: RetryIf<I, E>,
     log_after: u64,
     limit_opt: Option<usize>,
-    try_it_with_deadline: F,
-) -> impl Future<Item = I, Error = DeadlineError<E>> + Send
+    try_it_with_timeout: F,
+) -> impl Future<Item = I, Error = TimeoutError<E>> + Send
 where
     I: Debug + Send,
     E: Debug + Send,
     F: Fn() -> R + Send,
-    R: Future<Item = I, Error = DeadlineError<E>> + Send,
+    R: Future<Item = I, Error = TimeoutError<E>> + Send,
 {
     let condition = Arc::new(condition);
 
@@ -235,13 +235,13 @@ where
 
         attempt_count += 1;
 
-        try_it_with_deadline().then(move |result_with_deadline| {
-            let is_elapsed = result_with_deadline
+        try_it_with_timeout().then(move |result_with_timeout| {
+            let is_elapsed = result_with_timeout
                 .as_ref()
                 .err()
                 .map(|e| e.is_elapsed())
                 .unwrap_or(false);
-            let is_timer_err = result_with_deadline
+            let is_timer_err = result_with_timeout
                 .as_ref()
                 .err()
                 .map(|e| e.is_timer())
@@ -258,16 +258,16 @@ where
                 }
 
                 // Wrap in Err to force retry
-                Err(result_with_deadline)
+                Err(result_with_timeout)
             } else if is_timer_err {
                 // Should never happen
-                let timer_error = result_with_deadline.unwrap_err().into_timer().unwrap();
+                let timer_error = result_with_timeout.unwrap_err().into_timer().unwrap();
                 panic!("tokio timer error: {}", timer_error)
             } else {
                 // Any error must now be an inner error.
                 // Unwrap the inner error so that the predicate doesn't need to think
-                // about DeadlineError.
-                let result = result_with_deadline.map_err(|e| e.into_inner().unwrap());
+                // about TimeoutError.
+                let result = result_with_timeout.map_err(|e| e.into_inner().unwrap());
 
                 // If needs retry
                 if condition.check(&result) {
@@ -281,10 +281,10 @@ where
                     }
 
                     // Wrap in Err to force retry
-                    Err(result.map_err(DeadlineError::inner))
+                    Err(result.map_err(TimeoutError::inner))
                 } else {
                     // Wrap in Ok to prevent retry
-                    Ok(result.map_err(DeadlineError::inner))
+                    Ok(result.map_err(TimeoutError::inner))
                 }
             }
         })
