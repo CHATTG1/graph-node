@@ -139,6 +139,24 @@ _not_ends_with
 
 Please note that some suffixes are only supported for specific types. For example, `Boolean` only supports `"_not", "_in", "_not_in"`.
 
+# 2 Subscriptions 
+
+Subscriptions can be created to watch for live updates to the store. The syntax is shown below:
+
+```graphql
+subscription{
+    financeTransactions(first: 5) {
+      id
+      incoming
+      amount
+      entity
+      reference
+    }
+}
+```
+
+When an update to the store occurs, the subscription will be notified and it will get a query returned with the latest 5 financial transactions, including the newest update. 
+
 # 3 Schema
 
 The schema of your data source--that is, the entity types, values and relationships that are available to query--are defined through the [GraphQL Interface Definition Langauge (IDL)](http://facebook.github.io/graphql/draft/#sec-Type-System).
@@ -149,13 +167,13 @@ GraphQL requests consist of three basic operations: `query`, `subscription` and 
 
 **Note** Our API does not expose mutations because developers are expected to issue transactions directly against the underlying blockchain from their applications.
 
-It is typical for developers to define their own root `Query` and `Subscription` types when building a GraphQL API server, but with The Graph we generate these top level types based on the entities that you define in your schema, as well as several other types for exploring blockchain data, which we describe in depth in the [Query API](#Queries).
+It is typical for developers to define their own root `Query` types when building a GraphQL API server, but with The Graph we generate these top level types based on the entities that you define in your schema, as well as several other types for exploring blockchain data, which we describe in depth in the [Query API](#Basics).
 
 ## 3.2 Entities
 
 All GraphQL types with `@entity` directives in your schema will be treated as entities, and must have an `ID` field.
 
-**Note** Currently all types in your schema must have an `@entity` directive. In the future, we will treat types without an `@entity` directive as value objects, but this is not yet supported.
+> **Note** Currently all types in your schema must have an `@entity` directive. In the future, we will treat types without an `@entity` directive as value objects, but this is not yet supported.
 
 #### Example
 Define a `Token` entity:
@@ -182,6 +200,21 @@ There is a `Bytes` scalar for variable length byte arrays.
 The GraphQL spec defines `Int` and `Float` to have sizes of 32 bytes.
 
 This API additionally includes a `BigInt` number type to represent arbitrarily large integer numbers.
+
+## 3.4 Enums 
+
+You can also create `enums` within a schema. Enums have the following syntax:
+
+```graphql
+enum TokenStatus {
+    OriginalOwner,
+    SecondOwner,
+    ThirdOwner,
+}
+```
+
+In order to set a store value with an enum, you simply pass the string value of the result. In the example above, you can set the `TokenStatus` to the second owner with `"SecondOwner"`. 
+More detail on writing enums can be found in the [GraphQL documentation](https://graphql.org/learn/schema/).
 
 ## 3.5 Entity Relationships
 An entity may have a relationship to one or more other entities in your schema. These relationships may be traversed in your queries and subscriptions.
