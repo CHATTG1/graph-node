@@ -198,7 +198,7 @@ pub struct UnresolvedMapping {
 }
 
 // Avoid deriving `Clone` because cloning a `Module` is expensive.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Mapping {
     pub kind: String,
     pub api_version: String,

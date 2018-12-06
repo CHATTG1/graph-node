@@ -1,9 +1,12 @@
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use graph::data::subgraph::schema::{SubgraphEntity, SUBGRAPHS_ID};
-use graph::prelude::{SubgraphProvider as SubgraphProviderTrait, *};
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use graph::data::subgraph::schema::SUBGRAPHS_ID;
+use graph::prelude::{SubgraphProvider as SubgraphProviderTrait, *};
+
+use subgraph::definitions::SubgraphDefinitionStore;
 
 pub struct SubgraphProvider<L, S> {
     logger: Logger,
@@ -14,11 +17,13 @@ pub struct SubgraphProvider<L, S> {
     resolver: Arc<L>,
     subgraphs_running: Arc<Mutex<HashSet<SubgraphId>>>,
     store: Arc<S>,
+    subgraph_definition_store: SubgraphDefinitionStore<S>,
 }
 
 impl<L, S> SubgraphProvider<L, S>
 where
     L: LinkResolver,
+    S: Store,
 {
     pub fn new(logger: Logger, resolver: Arc<L>, store: Arc<S>) -> Self {
         let (schema_event_sink, schema_event_stream) = channel(100);
@@ -33,13 +38,11 @@ where
             schema_event_sink,
             resolver,
             subgraphs_running: Arc::new(Mutex::new(HashSet::new())),
+            subgraph_definition_store: SubgraphDefinitionStore::new(store.clone()),
             store,
         };
 
-        provider.send_builtin_schema(
-            &include_str!("subgraphs.graphql"),
-            SubgraphId::new(SUBGRAPHS_ID).unwrap(),
-        );
+        provider.send_builtin_schema(&include_str!("subgraphs.graphql"), SUBGRAPHS_ID.clone());
 
         provider
     }
@@ -106,6 +109,7 @@ where
             resolver: self.resolver.clone(),
             subgraphs_running: self.subgraphs_running.clone(),
             store: self.store.clone(),
+            subgraph_definition_store: self.subgraph_definition_store.clone(),
         }
     }
 }
@@ -140,19 +144,19 @@ where
                     }
 
                     // Place subgraph info into store
-                    SubgraphEntity::new(
-                        &subgraph,
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                    ).write_to_store(&*self_clone.store)
-                    .map_err(|err| {
-                        error!(
-                            self_clone.logger,
-                            "Failed to write subgraph to store: {}", err
-                        )
-                    }).ok();
+                    let created_at = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    self_clone
+                        .subgraph_definition_store
+                        .write_subgraph(subgraph.clone(), created_at)
+                        .map_err(|err| {
+                            error!(
+                                self_clone.logger,
+                                "Failed to write subgraph to store: {}", err
+                            )
+                        }).ok();
 
                     // Send events to trigger subgraph processing
                     Box::new(self_clone.send_add_events(subgraph).from_err())

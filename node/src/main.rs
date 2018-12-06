@@ -331,6 +331,7 @@ fn async_main() -> impl Future<Item = (), Error = ()> + Send + 'static {
         &logger,
         eth_net_identifiers,
     ));
+
     let graphql_runner = Arc::new(graph_core::GraphQlRunner::new(&logger, store.clone()));
     let mut graphql_server = GraphQLQueryServer::new(
         &logger,

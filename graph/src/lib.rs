@@ -3,6 +3,8 @@ pub extern crate ethabi;
 extern crate futures;
 extern crate graphql_parser;
 extern crate hex;
+#[macro_use]
+extern crate lazy_static;
 extern crate num_bigint;
 extern crate serde;
 #[macro_use]

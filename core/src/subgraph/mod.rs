@@ -1,3 +1,4 @@
+mod definitions;
 mod instance;
 mod instance_manager;
 mod provider;
